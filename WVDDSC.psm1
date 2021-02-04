@@ -7,7 +7,6 @@ enum Ensure
     Present
 }
 
-
 # [DscResource()] indicates the class is a DSC resource.
 [DscResource()]
 class WVDDSC
@@ -15,131 +14,123 @@ class WVDDSC
 
     # A DSC resource must define at least one key property.
     [DscProperty(Key)]
-    [string]$WebSiteName = 'Default Web Site'
+    [string]$PoolName
 
     [DscProperty()]
-    [string]$WebApplicationName = 'PSWA'
+    [string]$ManagedIdentityClientID
+
+    [DscProperty()]
+    [string]$ResourceGroupName
+
+    [DscProperty()]
+    [string]$SubscriptionID
+
+    [DscProperty(Key)]
+    [string]$PackagePath
 
     # Mandatory indicates the property is required and DSC will guarantee it is set.
     [DscProperty()]
     [Ensure]$Ensure = [Ensure]::Present
 
-    [DscProperty()]
-    [Bool]$UseTestCertificate
-
-    [DscProperty()]
-    [String]$SSLThumbPrint
-
-    [DscProperty(NotConfigurable)]
-    [String]$ApplicationPoolName
-
-    [DscProperty(NotConfigurable)]
-    [bool]$WindowsPowerShellWebAccessInstalled
-    
-
     # Tests if the resource is in the desired state.
     [bool] Test()
     {        
-        Try
+        try
         {
-            $Status = $this.Get()
-            if ($This.Ensure -eq [Ensure]::Present)
-            { 
-                    
-                Write-Verbose "WindowsPowerShellWebAccessInstalled: $($Status.WindowsPowerShellWebAccessInstalled)"
-                if ($Status.WindowsPowerShellWebAccessInstalled -and $Status.WebSiteName -and ($Status.WebSiteName -eq $this.WebSiteName) -and 
-                    $Status.WebApplicationName -and ($Status.WebApplicationName -eq $this.WebApplicationName) -and ($Status.SSLThumbPrint -eq $this.SSLThumbPrint) -and
-                    $Status.ApplicationPoolName -and ($Status.ApplicationPoolName -eq $this.ApplicationPoolName))
-                {
-                    return $True
-                }
-                else
-                {
-                    return $False
-                }
-            }
-            Else
-            {
-                
-                if ($Status.WindowsPowerShellWebAccessInstalled -or $Status.WebApplicationName -or $Status.ApplicationPoolName)
-                {
-                    return $False
-                }
-                else
-                {
-                    return $True
-                }
-
-            } 
-        }#Try  
-        Catch
+            return (Test-Path 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\RDInfraAgent')
+        }
+        catch
         {
-            $exception = $_
-            Write-Verbose 'Error occurred, something went wrong in TEST'
-            while ($exception.InnerException -ne $null)
-            {
-                $exception = $exception.InnerException
-                Write-Verbose $exception.message
-            }
-            return $true                
-        }#Catch
+            $ErrMsg = $PSItem | Format-List -Force | Out-String
+            Write-Log -Err $ErrMsg
+            throw [System.Exception]::new("Some error occurred in DSC ExecuteRdAgentInstallClient TestScript: $ErrMsg", $PSItem.Exception)
+        }
     } 
 
     # Sets the desired state of the resource.
     [void] Set()
     {
-        $Status = $this.Get()
-        if ($This.Ensure -eq [Ensure]::Present)
+        if (Test-Path -Path $this.PackagePath)
         {
-            if (-not $Status.WindowsPowerShellWebAccessInstalled)
+            $joinKey = $this.GetHostPoolConnectionToken()
+            $item = Get-Item -Path $this.PackagePath
+            $argumentList += "/l*+ ""$($item.Directory)/Microsoft.RDInfra.RDAgent.Installer.log"""
+            $argumentList += ' /quiet /norestart'
+            $argumentList += " REGISTRATIONTOKEN=$joinKey"
+
+            $retryTimeToSleepInSec = 30
+            $retryCount = 0
+            $sts = $null
+            do
             {
-                Install-WindowsFeature -Name WindowsPowerShellWebAccess
-            }
-            
-            Install-PswaWebApplication -WebApplicationName $this.WebApplicationName -WebSiteName $this.WebSiteName -UseTestCertificate:$this.UseTestCertificate -ErrorAction SilentlyContinue
-            
-            if ((-not $this.UseTestCertificate) -and $this.SSLThumbPrint)
-            {
-                #Import-Module -Name WebAdministration -Verbose:$false
-                
-                #Setup the SSL binding
-            }
+                if ($retryCount -gt 0)
+                {
+                    Start-Sleep -Seconds $retryTimeToSleepInSec
+                }
+
+                $processResult = Start-Process -FilePath 'msiexec.exe' -ArgumentList $argumentList -Wait -PassThru
+                $sts = $processResult.ExitCode
+
+                $retryCount++
+            } 
+            while ($sts -eq 1618 -and $retryCount -lt 20) # Error code 1618 is ERROR_INSTALL_ALREADY_RUNNING see https://docs.microsoft.com/en-us/windows/win32/msi/-msiexecute-mutex .
         }
-        Else
+        else 
         {
-            if ($Status.WebApplicationName)
-            {
-                $WebApplication = $Status.WebApplicationName.TrimEnd('_pool')
-                Remove-WebApplication -Name $WebApplication -Site $Status.WebSiteName -ErrorAction SilentlyContinue
-            }
-            if ($Status.ApplicationPoolName)
-            {
-                Remove-WebAppPool -Name $Status.ApplicationPoolName -ErrorAction SilentlyContinue
-            }
-            if ($Status.WindowsPowerShellWebAccessInstalled)
-            {
-                Uninstall-WindowsFeature -Name WindowsPowerShellWebAccess -ErrorAction SilentlyContinue
-            }
-        }    
+            throw "Package not found at $($this.PackagePath)"
+        }
     }
 
     # Gets the resource's current state.
     [WVDDSC] Get()
     {        
-        Import-Module -Name WebAdministration -Verbose:$false
-        $PSWA = Get-WindowsFeature -Name WindowsPowerShellWebAccess -ErrorAction SilentlyContinue
-        $AppPool = Get-Item -Path "IIS:\AppPools\$($this.WebApplicationName)_Pool" -ErrorAction SilentlyContinue
-        $WebApp = Get-WebApplication -Site $this.WebSiteName -Name $this.WebApplicationName
-        $WebSite = Get-Item -Path "IIS:\Sites\$($this.WebSiteName)" -ErrorAction SilentlyContinue
-        $SSLbindings = Get-ChildItem -Path IIS:\SslBindings -ErrorAction SilentlyContinue | Where-Object Sites -EQ $this.WebSiteName
-
-        $this.WebSiteName = $WebSite.Name
-        $this.WebApplicationName = $WebApp.ApplicationPool
-        $this.ApplicationPoolName = $AppPool.Name
-        $this.SSLThumbPrint = $SSLbindings.Thumbprint
-        $this.WindowsPowerShellWebAccessInstalled = $PSWA.Installed
-
         # Return this instance or construct a new instance.
         return $this
+    }
+
+    <#
+        Helper method to Get the ResourceID
+    #>
+
+    [string] GetHostPoolConnectionToken()
+    {
+        #region Retrieve the token via the ManagedIdentity
+        $WebRequest = @{
+            UseBasicParsing = $true
+            Uri             = "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&client_id=$($this.ManagedIdentityClientID)&resource=https://management.azure.com/"
+            Method          = 'GET'
+            Headers         = @{Metadata = 'true' }
+            ErrorAction     = 'Stop'
+            ContentType     = 'application/json'
+        }
+        $response = Invoke-WebRequest @WebRequest
+        $ArmToken = $response.Content | ConvertFrom-Json | ForEach-Object access_token
+        #endregion retrieve token
+        
+        #region only check the metadata service if details not passed in.
+        if (-not $this.SubscriptionID -or -not $this.ResourceGroupName)
+        {
+            $URI = 'http://169.254.169.254/metadata/instance?api-version=2019-02-01'
+            $VMMeta = Invoke-RestMethod -Headers @{'Metadata' = 'true' } -Uri $URI -Method GET
+            $Compute = $VMMeta.compute
+            
+            if (-not $this.SubscriptionID)
+            {
+                $this.SubscriptionID = $Compute.subscriptionId
+            }
+
+            if (-not $this.ResourceGroupName)
+            {
+                $this.ResourceGroupName = $Compute.resourceGroupName
+            }
+        }
+        #endregion retrieve optional information.
+        $WebRequest['Headers'] = @{ Authorization = "Bearer $ArmToken" }
+        $WebRequest['Uri'] = "https://management.azure.com/subscriptions/$($this.SubscriptionId)/resourceGroups/$($this.ResourceGroupName)/providers/Microsoft.DesktopVirtualization/hostPools/$($this.PoolName)?api-version=2019-12-10-preview"
+        
+
+        $Pool = (Invoke-WebRequest @WebRequest).content | ConvertFrom-Json
+        $HostPoolConnectionToken = $Pool | ForEach-Object properties | ForEach-Object RegistrationInfo | ForEach-Object token
+        return $HostPoolConnectionToken
     }
 }
