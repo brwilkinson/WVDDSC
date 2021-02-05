@@ -90,6 +90,6 @@ __Requirements__
 Full sample available here
 
 - DSC Configuration
-    - 
+    - ![ADF/ext-DSC/DSC-WVDServers.ps1](https://github.com/brwilkinson/AzureDeploymentFramework/blob/65fc52c88806f495651d14ee67136967af354982/ADF/ext-DSC/DSC-WVDServers.ps1)
 - DSC ConfigurationData
-    - 
+    - ![ADF/ext-CD/WVD-ConfigurationData.psd1](https://github.com/brwilkinson/AzureDeploymentFramework/blob/65fc52c88806f495651d14ee67136967af354982/ADF/ext-CD/WVD-ConfigurationData.psd1)
