@@ -14,7 +14,7 @@ class WVDDSC
 
     # A DSC resource must define at least one key property.
     [DscProperty(Key)]
-    [string]$PoolName
+    [string]$PoolNameSuffix
 
     [DscProperty()]
     [string]$ManagedIdentityClientID
@@ -125,8 +125,11 @@ class WVDDSC
             }
         }
         #endregion retrieve optional information.
+
+        $Deployment = $this.ResourceGroupName -replace '-RG',''
+        $PoolName = "{0}-wvd{1}" -f $Deployment,$this.PoolNameSuffix
         $WebRequest['Headers'] = @{ Authorization = "Bearer $ArmToken" }
-        $WebRequest['Uri'] = "https://management.azure.com/subscriptions/$($this.SubscriptionId)/resourceGroups/$($this.ResourceGroupName)/providers/Microsoft.DesktopVirtualization/hostPools/$($this.PoolName)?api-version=2019-12-10-preview"
+        $WebRequest['Uri'] = "https://management.azure.com/subscriptions/$($this.SubscriptionId)/resourceGroups/$($this.ResourceGroupName)/providers/Microsoft.DesktopVirtualization/hostPools/$($PoolName)?api-version=2019-12-10-preview"
         
 
         $Pool = (Invoke-WebRequest @WebRequest).content | ConvertFrom-Json
