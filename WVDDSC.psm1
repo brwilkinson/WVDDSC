@@ -54,8 +54,8 @@ class WVDDSC
         {
             $joinKey = $this.GetHostPoolConnectionToken()
             $item = Get-Item -Path $this.PackagePath
-            $argumentList += "/l*+ ""$($item.Directory)/Microsoft.RDInfra.RDAgent.Installer.log"""
-            $argumentList += ' /quiet /norestart'
+            $argumentList += " /i $($this.PackagePath) "
+            $argumentList += " /qb /norestart /l*+ $($item.Directory)\Microsoft.RDInfra.RDAgent.Installer.log"
             $argumentList += " REGISTRATIONTOKEN=$joinKey"
 
             $retryTimeToSleepInSec = 30
