@@ -126,14 +126,22 @@ class WVDDSC
         }
         #endregion retrieve optional information.
 
-        $Deployment = $this.ResourceGroupName -replace '-RG',''
-        $PoolName = "{0}-wvd{1}" -f $Deployment,$this.PoolNameSuffix
+        # https://learn.microsoft.com/en-us/rest/api/desktopvirtualization/host-pools/retrieve-registration-token?view=rest-desktopvirtualization-2022-02-10-preview&tabs=HTTP
+        $Deployment = $this.ResourceGroupName -replace '-RG', ''
+        $PoolName = '{0}-avdhp{1}' -f $Deployment, $this.PoolNameSuffix
         $WebRequest['Headers'] = @{ Authorization = "Bearer $ArmToken" }
-        $WebRequest['Uri'] = "https://management.azure.com/subscriptions/$($this.SubscriptionId)/resourceGroups/$($this.ResourceGroupName)/providers/Microsoft.DesktopVirtualization/hostPools/$($PoolName)?api-version=2019-12-10-preview"
-        
+        $WebRequest['Uri'] = "https://management.azure.com/subscriptions/$($this.SubscriptionId)/resourceGroups/$($this.ResourceGroupName)/providers/Microsoft.DesktopVirtualization/hostPools/$($PoolName)/retrieveRegistrationToken?api-version=2022-02-10-preview"
+        $WebRequest['Method'] = 'POST'
+            
+        $HostPoolConnectionToken = (Invoke-RestMethod @WebRequest).token
 
-        $Pool = (Invoke-WebRequest @WebRequest).content | ConvertFrom-Json
-        $HostPoolConnectionToken = $Pool | ForEach-Object properties | ForEach-Object RegistrationInfo | ForEach-Object token
-        return $HostPoolConnectionToken
+        if ($HostPoolConnectionToken)
+        {
+            return $HostPoolConnectionToken
+        }
+        else
+        {
+            throw 'Registration token must be generated first, cannot continue'
+        }
     }
 }
